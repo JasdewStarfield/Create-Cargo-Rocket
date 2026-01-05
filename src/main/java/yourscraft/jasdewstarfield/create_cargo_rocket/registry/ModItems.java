@@ -6,6 +6,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import yourscraft.jasdewstarfield.create_cargo_rocket.CreateCargoRocket;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.rocket.CargoRocketItem;
 
 public class ModItems {
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(CreateCargoRocket.MODID);
@@ -16,7 +17,7 @@ public class ModItems {
 
     // 火箭实体物品 (用于生成火箭)
     public static final DeferredItem<Item> CARGO_ROCKET = ITEMS.register("cargo_rocket",
-            () -> new Item(new Item.Properties().stacksTo(1)));
+            () -> new CargoRocketItem(new Item.Properties().stacksTo(1)));
 
     public static void register(IEventBus eventBus) {
         ITEMS.register(eventBus);
