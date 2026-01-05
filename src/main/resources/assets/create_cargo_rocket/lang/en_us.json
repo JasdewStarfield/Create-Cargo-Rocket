@@ -1,0 +1,5 @@
+{
+  "itemGroup.create_cargo_rocket": "Example Mod Tab",
+  "block.create_cargo_rocket.example_block": "Example Block",
+  "item.create_cargo_rocket.example_item": "Example Item"
+}
