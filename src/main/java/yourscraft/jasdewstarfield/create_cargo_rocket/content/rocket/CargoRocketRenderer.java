@@ -17,7 +17,14 @@ public class CargoRocketRenderer extends EntityRenderer<CargoRocketEntity> {
     }
 
     @Override
-    public void render(@NotNull CargoRocketEntity entity, float entityYaw, float partialTick, @NotNull PoseStack poseStack, @NotNull MultiBufferSource buffer, int packedLight) {
+    public void render(
+            @NotNull CargoRocketEntity entity,
+            float entityYaw,
+            float partialTick,
+            @NotNull PoseStack poseStack,
+            @NotNull MultiBufferSource buffer,
+            int packedLight
+    ) {
         super.render(entity, entityYaw, partialTick, poseStack, buffer, packedLight);
 
         poseStack.pushPose();
