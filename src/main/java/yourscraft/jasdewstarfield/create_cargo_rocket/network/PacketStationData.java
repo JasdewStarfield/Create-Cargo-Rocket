@@ -34,13 +34,13 @@ public record PacketStationData(BlockPos pos, String name) implements CustomPack
             if (context.player() instanceof ServerPlayer serverPlayer) {
                 // 服务端逻辑：接收名字并更新方块实体
                 ServerLevel level = serverPlayer.serverLevel();
+                if (serverPlayer.distanceToSqr(packet.pos.getX(), packet.pos.getY(), packet.pos.getZ()) > 64.0) {
+                    return;
+                }
                 BlockEntity be = level.getBlockEntity(packet.pos);
                 if (be instanceof DockingStationBlockEntity station) {
-                    station.updateName(packet.name);
+                    station.updateName(packet.name, serverPlayer);
                 }
-            } else {
-                // 客户端逻辑（可选，如果需要服务端同步回客户端）
-                // 目前主要是 C2S (Client to Server)
             }
         });
     }

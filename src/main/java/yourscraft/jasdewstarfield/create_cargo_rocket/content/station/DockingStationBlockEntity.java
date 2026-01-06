@@ -1,13 +1,16 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.station;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -42,30 +45,47 @@ public class DockingStationBlockEntity extends BlockEntity {
     }
 
     /**
-     * 更新站点名称（通常由数据包调用）
-     * 同时也负责更新 GlobalStationData
+     * 尝试更新站点名称。
+     * @param newName 新名称
+     * @param player 发起操作的玩家（用于发送反馈消息），如果为 null 则不发送反馈
+     * @return 是否更新成功
      */
-    public void updateName(String newName) {
-        if (this.stationName.equals(newName)) return;
+    public boolean updateName(String newName, @Nullable ServerPlayer player) {
+        if (this.stationName.equals(newName)) return true;
 
-        // 移除旧名字的索引（如果有）
-        if (level instanceof ServerLevel serverLevel && !this.stationName.isEmpty()) {
-            GlobalStationData data = GlobalStationData.get(serverLevel);
-            // 注意：这里我们根据旧名字移除，但如果坐标变了（虽然BE坐标一般不变），逻辑要小心
-            // 简单起见，我们在 addStation 里处理覆盖逻辑
+        // 只有服务端需要更新 GlobalStationData 和进行查重
+        if (level instanceof ServerLevel serverLevel) {
+            if (!newName.isEmpty()) {
+                GlobalStationData data = GlobalStationData.get(serverLevel);
+
+                // === 查重逻辑 ===
+                if (data.hasStation(newName)) {
+                    GlobalPos existingPos = data.getStationPos(newName);
+                    // 如果名字存在，且对应的坐标不是当前方块（防止“自己改名给自己”误报，虽然这种情况会被第一行 equals 拦截，但为了逻辑严谨）
+                    if (!existingPos.dimension().equals(level.dimension()) || !existingPos.pos().equals(worldPosition)) {
+                        if (player != null) {
+                            player.sendSystemMessage(Component.literal("Station name already taken!").withStyle(ChatFormatting.RED));
+                        }
+                        return false; // 更新失败
+                    }
+                }
+
+                data.addStation(newName, GlobalPos.of(level.dimension(), worldPosition));
+            }
         }
 
         this.stationName = newName;
         this.setChanged();
+
+        // 同步给客户端
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
 
-        // 注册到全局地图
-        if (level instanceof ServerLevel serverLevel && !newName.isEmpty()) {
-            GlobalStationData data = GlobalStationData.get(serverLevel);
-            data.addStation(newName, GlobalPos.of(level.dimension(), worldPosition));
+        if (player != null) {
+            player.sendSystemMessage(Component.literal("Station is named to: " + newName).withStyle(ChatFormatting.GREEN));
         }
+        return true;
     }
 
     // === NBT & Sync ===
