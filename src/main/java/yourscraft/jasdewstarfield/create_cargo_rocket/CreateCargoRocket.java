@@ -22,7 +22,7 @@ import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModItems;
 @Mod(CreateCargoRocket.MODID)
 public class CreateCargoRocket {
     public static final String MODID = "create_cargo_rocket";
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public CreateCargoRocket(IEventBus modEventBus, ModContainer modContainer) {
         // 初始化注册表

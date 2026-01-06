@@ -1,6 +1,13 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.station;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -17,6 +24,7 @@ public class DockingStationBlockEntity extends BlockEntity {
 
     // 缓存的代理处理器实例
     private final ProxyItemHandler itemHandler = new ProxyItemHandler();
+    private String stationName = "";
 
     public DockingStationBlockEntity(BlockPos pos, BlockState blockState) {
         super(ModBlockEntities.DOCKING_STATION.get(), pos, blockState);
@@ -29,9 +37,67 @@ public class DockingStationBlockEntity extends BlockEntity {
         return itemHandler;
     }
 
+    public String getStationName() {
+        return stationName;
+    }
+
+    /**
+     * 更新站点名称（通常由数据包调用）
+     * 同时也负责更新 GlobalStationData
+     */
+    public void updateName(String newName) {
+        if (this.stationName.equals(newName)) return;
+
+        // 移除旧名字的索引（如果有）
+        if (level instanceof ServerLevel serverLevel && !this.stationName.isEmpty()) {
+            GlobalStationData data = GlobalStationData.get(serverLevel);
+            // 注意：这里我们根据旧名字移除，但如果坐标变了（虽然BE坐标一般不变），逻辑要小心
+            // 简单起见，我们在 addStation 里处理覆盖逻辑
+        }
+
+        this.stationName = newName;
+        this.setChanged();
+        if (level != null) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+
+        // 注册到全局地图
+        if (level instanceof ServerLevel serverLevel && !newName.isEmpty()) {
+            GlobalStationData data = GlobalStationData.get(serverLevel);
+            data.addStation(newName, GlobalPos.of(level.dimension(), worldPosition));
+        }
+    }
+
+    // === NBT & Sync ===
+
+    @Override
+    protected void saveAdditional(@NotNull CompoundTag tag, HolderLookup.@NotNull Provider provider) {
+        super.saveAdditional(tag, provider);
+        tag.putString("StationName", stationName);
+    }
+
+    @Override
+    protected void loadAdditional(@NotNull CompoundTag tag, HolderLookup.@NotNull Provider provider) {
+        super.loadAdditional(tag, provider);
+        this.stationName = tag.getString("StationName");
+    }
+
+    @Nullable
+    @Override
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public @NotNull CompoundTag getUpdateTag(HolderLookup.@NotNull Provider provider) {
+        return saveWithoutMetadata(provider);
+    }
+
+    // === Inventory Proxy ===
+
     /**
      * 尝试寻找停靠在正上方的火箭实体。
-     * 为了性能，我们只在需要时扫描，并且范围限定在方块正上方。
+     * 为了性能，只在需要时扫描，并且范围限定在方块正上方。
      */
     @Nullable
     public CargoRocketEntity getRocket() {
