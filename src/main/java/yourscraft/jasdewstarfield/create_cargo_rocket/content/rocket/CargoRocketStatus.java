@@ -168,9 +168,9 @@ public class CargoRocketStatus {
     }
 
     private void sendToPlayer(net.minecraft.server.level.ServerPlayer player) {
-        MutableComponent header = Component.literal("[Cargo Rocket] ")
+        MutableComponent header = Component.translatable(CreateCargoRocket.MODID + ".status.header")
                 .withStyle(ChatFormatting.GOLD)
-                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.WHITE));
+                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.GOLD));
 
         player.sendSystemMessage(header);
         for (Component message : queued) {
@@ -180,9 +180,9 @@ public class CargoRocketStatus {
 
     private void sendToGlobal(Level level) {
         // ... 原来的广播逻辑 ...
-        MutableComponent header = Component.literal("[Cargo Rocket] ")
+        MutableComponent header = Component.translatable(CreateCargoRocket.MODID + ".status.header")
                 .withStyle(ChatFormatting.GOLD)
-                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.WHITE));
+                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.GOLD));
 
         Objects.requireNonNull(level.getServer()).getPlayerList().broadcastSystemMessage(header, false);
         for (Component message : queued) {

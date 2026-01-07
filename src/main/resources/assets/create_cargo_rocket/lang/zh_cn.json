@@ -3,6 +3,7 @@
   "block.create_cargo_rocket.docking_station": "火箭接驳站台",
   "entity.create_cargo_rocket.cargo_rocket": "货运火箭",
 
+  "create_cargo_rocket.status.header": "<i> 关于货运火箭的信息: ",
   "create_cargo_rocket.status.no_station": "发射中止：下方未检测到接驳站台。",
   "create_cargo_rocket.status.no_target": "发射中止：无法找到目的地“%s”。",
   "create_cargo_rocket.status.obstruction": "发射中止：检测到障碍物 (%s)。",

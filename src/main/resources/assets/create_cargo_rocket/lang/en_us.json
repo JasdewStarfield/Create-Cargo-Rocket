@@ -3,6 +3,7 @@
   "block.create_cargo_rocket.docking_station": "Rocket Docking Station",
   "entity.create_cargo_rocket.cargo_rocket": "Cargo Rocket",
 
+  "create_cargo_rocket.status.header": "<i> Information about Cargo Rocket: ",
   "create_cargo_rocket.status.no_station": "Launch Aborted: No Docking Station found below.",
   "create_cargo_rocket.status.no_target": "Launch Aborted: Destination '%s' could not be found.",
   "create_cargo_rocket.status.obstruction": "Launch Aborted: Obstruction detected (%s).",

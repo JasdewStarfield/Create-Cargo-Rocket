@@ -45,25 +45,7 @@ public record PacketStationData(BlockPos pos, String name, boolean isRocketName)
                 BlockEntity be = level.getBlockEntity(packet.pos);
                 if (be instanceof DockingStationBlockEntity station) {
                     if (packet.isRocketName) {
-                        // 改火箭名
-                        CargoRocketEntity rocket = station.getRocket();
-
-                        if (rocket != null) {
-                            GlobalStationData data = GlobalStationData.get(level);
-                            String finalName = packet.name;
-                            if (!packet.name.equals(rocket.getRocketName())) {
-                                finalName = data.getUniqueRocketName(packet.name);
-                            }
-
-                            rocket.setRocketName(finalName);
-
-                            if (!finalName.equals(packet.name)) {
-                                serverPlayer.sendSystemMessage(Component.literal("Name taken! Renamed to: " + finalName).withStyle(ChatFormatting.YELLOW));
-                            } else {
-                                serverPlayer.sendSystemMessage(Component.literal("Rocket renamed to: " + finalName));
-                            }
-                        }
-
+                        station.updateRocketName(packet.name, serverPlayer);
                     } else {
                         // 改站台名 (原有逻辑)
                         station.updateName(packet.name, serverPlayer);

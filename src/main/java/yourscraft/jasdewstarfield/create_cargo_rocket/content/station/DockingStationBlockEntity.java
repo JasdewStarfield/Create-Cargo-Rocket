@@ -46,12 +46,12 @@ public class DockingStationBlockEntity extends BlockEntity {
 
     /**
      * 尝试更新站点名称。
+     *
      * @param newName 新名称
-     * @param player 发起操作的玩家（用于发送反馈消息），如果为 null 则不发送反馈
-     * @return 是否更新成功
+     * @param player  发起操作的玩家（用于发送反馈消息），如果为 null 则不发送反馈
      */
-    public boolean updateName(String newName, @Nullable ServerPlayer player) {
-        if (this.stationName.equals(newName)) return true;
+    public void updateName(String newName, @Nullable ServerPlayer player) {
+        if (this.stationName.equals(newName)) return;
 
         // 只有服务端需要更新 GlobalStationData 和进行查重
         if (level instanceof ServerLevel serverLevel) {
@@ -61,12 +61,12 @@ public class DockingStationBlockEntity extends BlockEntity {
                 // === 查重逻辑 ===
                 if (data.hasStation(newName)) {
                     GlobalPos existingPos = data.getStationPos(newName);
-                    // 如果名字存在，且对应的坐标不是当前方块（防止“自己改名给自己”误报，虽然这种情况会被第一行 equals 拦截，但为了逻辑严谨）
+                    // 如果名字存在，且对应的坐标不是当前方块
                     if (!existingPos.dimension().equals(level.dimension()) || !existingPos.pos().equals(worldPosition)) {
                         if (player != null) {
                             player.sendSystemMessage(Component.literal("Station name already taken!").withStyle(ChatFormatting.RED));
                         }
-                        return false; // 更新失败
+                        return; // 更新失败
                     }
                 }
 
@@ -81,11 +81,35 @@ public class DockingStationBlockEntity extends BlockEntity {
         if (level != null) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
+    }
 
-        if (player != null) {
-            player.sendSystemMessage(Component.literal("Station is named to: " + newName).withStyle(ChatFormatting.GREEN));
+    public void updateRocketName(String newName, @Nullable ServerPlayer player) {
+        CargoRocketEntity rocket = getRocket();
+
+        // 如果没有火箭，直接返回
+        if (rocket == null) return;
+
+        // 逻辑只在服务端执行
+        if (level instanceof ServerLevel serverLevel) {
+            GlobalStationData data = GlobalStationData.get(serverLevel);
+            String finalName = newName;
+
+            // 如果名字确实改变了，才进行查重逻辑
+            if (!newName.equals(rocket.getRocketName())) {
+                finalName = data.getUniqueRocketName(newName);
+            }
+
+            // 执行改名
+            rocket.setRocketName(finalName);
+
+            // 发送反馈信息给玩家
+            if (player != null) {
+                if (!finalName.equals(newName)) {
+                    // 名字被占用，自动重命名
+                    player.sendSystemMessage(Component.literal("Name taken! Renamed to: " + finalName).withStyle(ChatFormatting.YELLOW));
+                }
+            }
         }
-        return true;
     }
 
     // === NBT & Sync ===

@@ -1,7 +1,5 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.station;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
 import com.simibubi.create.foundation.gui.AllIcons;
@@ -55,6 +53,9 @@ public class DockingStationScreen extends AbstractSimiScreen {
 
     @Override
     protected void init() {
+        String oldStationName = (nameBox != null) ? nameBox.getValue() : initialStationName;
+        String oldRocketName = (rocketNameBox != null) ? rocketNameBox.getValue() : "";
+
         setWindowSize(background.getWidth(), background.getHeight());
         super.init();
 
@@ -67,7 +68,8 @@ public class DockingStationScreen extends AbstractSimiScreen {
         nameBox.setBordered(false);
         nameBox.setMaxLength(25);
         nameBox.setTextColor(0x592424); // Create 风格的深红色字体
-        nameBox.setValue(initialStationName);
+        nameBox.setTextShadow(false);
+        nameBox.setValue(oldStationName);
         nameBox.setFocused(false);
         nameBox.setResponder(s -> nameBox.setX(nameBoxX(s, nameBox)));
         nameBox.setX(nameBoxX(initialStationName, nameBox));
@@ -78,9 +80,11 @@ public class DockingStationScreen extends AbstractSimiScreen {
         rocketNameBox.setBordered(false);
         rocketNameBox.setMaxLength(35);
         rocketNameBox.setTextColor(0xC6C6C6); // 灰色字体
+        rocketNameBox.setTextShadow(false);
         rocketNameBox.setFocused(false);
         rocketNameBox.active = false;
         rocketNameBox.visible = false;
+        rocketNameBox.setValue(oldRocketName);
         rocketNameBox.setResponder(s -> rocketNameBox.setX(nameBoxX(s, rocketNameBox)));
         addRenderableWidget(rocketNameBox);
 
@@ -169,20 +173,13 @@ public class DockingStationScreen extends AbstractSimiScreen {
             // 有火箭，绘制火箭模型
             CargoRocketEntity rocket = displayedRocket.get();
             if (rocket != null) {
-                renderRocketEntity(graphics, x + background.getWidth() / 2, y + 40, 3, rocket);
+                renderRocketEntity(graphics, x + background.getWidth() / 2, y + 73, 4, rocket);
             }
 
             // 绘制文本框背景装饰
             AllGuiTextures.STATION_TEXTBOX_TOP.render(graphics, x + 21, y + 42);
             UIRenderHelper.drawStretched(graphics, x + 21, y + 60, 150, 26, 0, AllGuiTextures.STATION_TEXTBOX_MIDDLE);
             AllGuiTextures.STATION_TEXTBOX_BOTTOM.render(graphics, x + 21, y + 86);
-
-            // 语音气泡小箭头
-            PoseStack ms = graphics.pose();
-            ms.pushPose();
-            ms.translate(80, 0, 0); // 调整位置指向中间
-            AllGuiTextures.STATION_TEXTBOX_SPEECH.render(graphics, x, y + 38);
-            ms.popPose();
 
             // 绘制火箭名编辑图标
             text = rocketNameBox.getValue();
@@ -197,13 +194,9 @@ public class DockingStationScreen extends AbstractSimiScreen {
      * 在界面中央绘制一个旋转的火箭物品/模型
      */
     private void renderRocketEntity(GuiGraphics graphics, int x, int y, int scale, Entity entity) {
-        PoseStack poseStack = graphics.pose();
-        poseStack.pushPose();
-
-        // 1. 移到指定位置
-        poseStack.translate(x, y, 50.0F);
-        // 2. 缩放 (注意 Y 轴反转)
-        poseStack.scale((float) scale, (float) scale, (float) -scale);
+        graphics.pose().pushPose();
+        graphics.pose().translate(x, y, 50.0F); // 这里的 Z=50 确保实体在背景之上
+        graphics.pose().scale((float) scale, (float) scale, (float) -scale);
 
         // 3. 旋转控制
         // 计算旋转角度 (每 5 tick 旋转一圈，慢慢转看起来比较高级)
@@ -212,7 +205,7 @@ public class DockingStationScreen extends AbstractSimiScreen {
         Quaternionf rotZ = Axis.ZP.rotationDegrees(180.0F); // 修正倒立
         Quaternionf rotY = Axis.YP.rotationDegrees(rotation + 135.0f); // 加上旋转动画
         rotZ.mul(rotY);
-        poseStack.mulPose(rotZ);
+        graphics.pose().mulPose(rotZ);
 
         EntityRenderDispatcher entityrenderdispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
         rotY.conjugate();
@@ -220,15 +213,11 @@ public class DockingStationScreen extends AbstractSimiScreen {
         entityrenderdispatcher.setRenderShadow(false);
 
         // 4. 渲染
-        // 注意：火箭中心点可能在脚底，为了居中显示，可能需要微调 translateY
-        // 这里假设火箭高 2 格，我们把原点下移一点让它居中
-        RenderSystem.runAsFancy(() -> {
-            entityrenderdispatcher.render(entity, 0.0D, -3.0D, 0.0D, 0.0F, 1.0F, poseStack, graphics.bufferSource(), 15728880);
-        });
+        entityrenderdispatcher.render(entity, 0.0D, -3.0D, 0.0D, 0.0F, 1.0F, graphics.pose(), graphics.bufferSource(), 15728880);
 
         graphics.flush();
         entityrenderdispatcher.setRenderShadow(true);
-        poseStack.popPose();
+        graphics.pose().popPose();
     }
 
     @Override
