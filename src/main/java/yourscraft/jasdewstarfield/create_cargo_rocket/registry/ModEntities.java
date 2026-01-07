@@ -14,7 +14,7 @@ public class ModEntities {
 
     public static final DeferredHolder<EntityType<?>, EntityType<CargoRocketEntity>> CARGO_ROCKET = ENTITY_TYPES.register("cargo_rocket",
             () -> EntityType.Builder.<CargoRocketEntity>of(CargoRocketEntity::new, MobCategory.MISC)
-                    .sized(2.0f, 6.0f)
+                    .sized(1.0f, 6.0f)
                     .clientTrackingRange(10)
                     .build("cargo_rocket"));
 

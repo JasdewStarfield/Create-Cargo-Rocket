@@ -1,8 +1,6 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.rocket;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.context.UseOnContext;
@@ -10,7 +8,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
-import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModEntities;
 
 public class CargoRocketItem extends Item {
     public CargoRocketItem(Properties properties) {

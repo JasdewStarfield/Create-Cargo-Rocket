@@ -1,3 +1,14 @@
 {
-  "block.create_cargo_rocket.docking_station": "Rocket Docking Station"
+  "item.create_cargo_rocket.cargo_rocket": "Cargo Rocket",
+  "block.create_cargo_rocket.docking_station": "Rocket Docking Station",
+  "entity.create_cargo_rocket.cargo_rocket": "Cargo Rocket",
+
+  "create_cargo_rocket.status.no_station": "Launch Aborted: No Docking Station found below.",
+  "create_cargo_rocket.status.no_target": "Launch Aborted: Destination '%s' could not be found.",
+  "create_cargo_rocket.status.obstruction": "Launch Aborted: Obstruction detected (%s).",
+  "create_cargo_rocket.status.launch_success": "Systems Nominal. Launch Sequence Initiated.",
+  "create_cargo_rocket.status.manual_reset": "Manual Reset Successful. Systems Standing By.",
+  "create_cargo_rocket.status.orbiting_no_signal": "Orbit Idling: Destination '%s' has lost signal. Searching...",
+  "create_cargo_rocket.status.orbiting_occupied": "Orbit Idling: Destination '%s' is occupied. Queuing...",
+  "create_cargo_rocket.status.orbit_cleared": "Orbit Signal: Conditions met. Continuing mission."
 }
