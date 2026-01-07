@@ -36,10 +36,12 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.portal.DimensionTransition;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.items.ItemStackHandler;
 import org.jetbrains.annotations.NotNull;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlock;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.GlobalStationData;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModEntities;
@@ -54,6 +56,7 @@ public class CargoRocketEntity extends Entity {
         IDLE,       // 停靠/空闲
         LAUNCHING,  // 起飞（向上加速）
         FLIGHT,     // 飞行中（准备传送）
+        ORBITING,   // 轨道待命（目标无效或被占用）
         LANDING,    // 降落（向下减速）
         STUCK       // 故障/被卡住 (等待玩家处理)
     }
@@ -72,7 +75,10 @@ public class CargoRocketEntity extends Entity {
 
     // 用于逻辑判断的临时变量
     private int cooldown = 0; // 冷却计时
+    private int orbitTicker = 0; // 轨道扫描计时器
+
     private GlobalPos targetStationPos; // 目标站点坐标缓存
+    private String targetStationName;
 
     public final CargoRocketStatus status;
 
@@ -119,6 +125,9 @@ public class CargoRocketEntity extends Entity {
             ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(compound.getString("TargetDimension")));
             BlockPos pos = new BlockPos(compound.getInt("TargetX"), compound.getInt("TargetY"), compound.getInt("TargetZ"));
             this.targetStationPos = GlobalPos.of(dim, pos);
+        }
+        if (compound.contains("TargetName")) {
+            this.targetStationName = compound.getString("TargetName");
         }
     }
 
@@ -237,9 +246,13 @@ public class CargoRocketEntity extends Entity {
         // 如果不是 IDLE 状态，我们完全接管运动（不应用默认重力，因为我们在飞）
         // 如果是 IDLE 状态，我们施加一个简单的重力，确保它贴在地上
         if (!isNoGravity()) {
-            if (getRocketState() == RocketState.IDLE || getRocketState() == RocketState.STUCK) {
+            RocketState state = getRocketState();
+            if (state == RocketState.IDLE || state == RocketState.STUCK) {
                 // 模拟标准实体重力 (约 0.08/tick)
                 this.setDeltaMovement(this.getDeltaMovement().add(0, -0.08, 0));
+            }else if (state == RocketState.ORBITING) {
+                // 轨道悬停：保持垂直速度为0
+                this.setDeltaMovement(0, 0, 0);
             }
         }
 
@@ -253,6 +266,7 @@ public class CargoRocketEntity extends Entity {
                 case IDLE -> tickIdle();
                 case LAUNCHING -> tickLaunching();
                 case FLIGHT -> tickFlight();
+                case ORBITING -> tickOrbiting();
                 case LANDING -> tickLanding();
                 case STUCK -> { /* 等待玩家操作 */ }
             }
@@ -269,6 +283,11 @@ public class CargoRocketEntity extends Entity {
             return;
         }
 
+        BlockPos below = findStationBelow();
+        if (below != null) {
+            setStationOccupied(level(), below, true);
+        }
+
         // 寻找下一站
         String stationName = getNextStationName();
         if (stationName != null) {
@@ -281,7 +300,14 @@ public class CargoRocketEntity extends Entity {
                 return;
             }
 
-            // Check B: 目标站点是否存在？
+            // Check B: 头顶有无遮挡？
+            if (isObstructed(level(), blockPosition().above())) {
+                status.failedObstruction("Sky Blocked");
+                this.setRocketState(RocketState.STUCK);
+                return;
+            }
+
+            // Check C: 目标站点是否存在？
             GlobalStationData data = GlobalStationData.get((ServerLevel) level());
             GlobalPos dest = data.getStationPos(stationName);
             if (dest == null) {
@@ -293,6 +319,7 @@ public class CargoRocketEntity extends Entity {
             // === 检查通过，发射！ ===
             status.successfulLaunch();
             this.targetStationPos = dest;
+            this.targetStationName = stationName;
             this.setRocketState(RocketState.LAUNCHING);
 
             // 播放起飞音效
@@ -310,6 +337,11 @@ public class CargoRocketEntity extends Entity {
 
         // 如果飞得足够高 (例如 Y > 300 或 相对高度 +50)
         if (this.getY() > level().getMaxBuildHeight() + 20) {
+            // 释放下方的站台
+            BlockPos stationPos = findStationBelow();
+            if (stationPos != null) {
+                setStationOccupied(level(), stationPos, false);
+            }
             this.setRocketState(RocketState.FLIGHT);
         }
     }
@@ -318,35 +350,96 @@ public class CargoRocketEntity extends Entity {
      * FLIGHT: 瞬间移动逻辑 (跨维度传送)
      */
     private void tickFlight() {
+        tickOrbiting();
+    }
+
+    /**
+     * ORBITING: 轨道待命
+     * 保持在高空，定期扫描目标。
+     */
+    private void tickOrbiting() {
+        // 如果是纯 ORBITING 状态，我们加上延时以节省性能
+        if (getRocketState() == RocketState.ORBITING) {
+            orbitTicker++;
+            if (orbitTicker < 20) return;
+            orbitTicker = 0;
+        }
+
+        // 1. 基础数据检查
         if (targetStationPos == null) {
-            // 丢失目标
-            this.setRocketState(RocketState.STUCK);
-            status.failedObstruction("Target Pos Lost");
+            handleTargetLost();
             return;
         }
 
-        // 刷新站点位置
-        GlobalStationData data = GlobalStationData.get((ServerLevel) level());
-        ServerLevel currentLevel = (ServerLevel) level();
-        ServerLevel targetLevel = currentLevel.getServer().getLevel(targetStationPos.dimension());
-
+        ServerLevel targetLevel = ((ServerLevel) level()).getServer().getLevel(targetStationPos.dimension());
         if (targetLevel == null) {
-            // 目标维度不存在
             this.setRocketState(RocketState.STUCK);
             status.failedObstruction("Unknown Dimension");
             return;
         }
 
+        // 2. 检查方块是否有效
+        BlockPos destPos = targetStationPos.pos();
+        BlockState destState = targetLevel.getBlockState(destPos);
+
+        if (!destState.is(ModBlocks.DOCKING_STATION.get())) {
+            // 目标位置不是站台？尝试用名字重新搜索
+            if (this.targetStationName != null && !this.targetStationName.isEmpty()) {
+                GlobalStationData data = GlobalStationData.get(targetLevel);
+                GlobalPos newPos = data.getStationPos(this.targetStationName);
+
+                // 如果找到了新位置
+                if (newPos != null && !newPos.equals(this.targetStationPos)) {
+                    this.targetStationPos = newPos;
+                    // 递归调用自己，立即检查新位置
+                    tickOrbiting();
+                    return;
+                }
+            }
+
+            // 还是找不到，或者名字没变但方块没了
+            if (getRocketState() != RocketState.ORBITING) this.setRocketState(RocketState.ORBITING);
+            status.orbitingNoSignal(this.targetStationName);
+            return;
+        }
+
+        // 3. 检查占用
+        if (destState.getValue(DockingStationBlock.OCCUPIED)) {
+            if (getRocketState() != RocketState.ORBITING) this.setRocketState(RocketState.ORBITING);
+            status.orbitingOccupied(this.targetStationName);
+            return;
+        }
+
+        // 4. 检查降落区是否有遮挡
+        // 扫描目标站台上方的空间
+        if (isObstructed(targetLevel, destPos.above())) {
+            if (getRocketState() != RocketState.ORBITING) this.setRocketState(RocketState.ORBITING);
+            status.failedObstruction("Landing Zone Blocked"); // Landing Zone Blocked
+            return;
+        }
+
+        // === 一切正常，执行传送 ===
+        status.orbitalClearanceGranted();
+        setStationOccupied(targetLevel, destPos, true); // 预订
+        performTeleport(targetLevel, destPos);
+    }
+
+    private void handleTargetLost() {
+        this.setRocketState(RocketState.STUCK);
+        status.failedObstruction("Target Lost");
+    }
+
+    private void performTeleport(ServerLevel targetLevel, BlockPos destPos) {
         // 设置新位置：目标正上方高空
-        double destX = targetStationPos.pos().getX() + 0.5;
-        double destY = targetLevel.getMaxBuildHeight() + 20; // 从高空降落
-        double destZ = targetStationPos.pos().getZ() + 0.5;
+        double destX = destPos.getX() + 0.5;
+        double destY = targetLevel.getMaxBuildHeight() + 20;
+        double destZ = destPos.getZ() + 0.5;
 
         Vec3 targetPos = new Vec3(destX, destY, destZ);
+        ServerLevel currentLevel = (ServerLevel) level();
 
         // 如果跨维度
         if (targetLevel != currentLevel) {
-            // 构建传送参数
             // 参数顺序: 目标世界, 目标位置, 目标速度(0), Y轴旋转, X轴旋转, 传送后回调
             DimensionTransition transition = new DimensionTransition(
                     targetLevel,
@@ -364,9 +457,7 @@ public class CargoRocketEntity extends Entity {
         } else {
             // 同维度传送
             this.teleportTo(destX, destY, destZ);
-            // 切换到降落状态
             this.setRocketState(RocketState.LANDING);
-            // 清除速度
             this.setDeltaMovement(Vec3.ZERO);
         }
     }
@@ -383,6 +474,48 @@ public class CargoRocketEntity extends Entity {
         if (this.onGround()) {
             this.setRocketState(RocketState.IDLE);
             onArrival();
+        }
+    }
+
+    // === 辅助方法 ===
+
+    // 扫描正下方寻找站台（适用于高空或者贴地）
+    @Nullable
+    private BlockPos findStationBelow() {
+        BlockPos.MutableBlockPos p = this.blockPosition().mutable();
+        // 从当前位置向下扫描直到世界底部
+        for (int y = p.getY(); y >= level().getMinBuildHeight(); y--) {
+            p.setY(y);
+            if (level().getBlockState(p).is(ModBlocks.DOCKING_STATION.get())) {
+                return p.immutable();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 遮挡检查,检查从 startPos 向上直到世界顶端是否有阻挡的方块
+     */
+    private boolean isObstructed(Level level, BlockPos startPos) {
+        int maxY = level.getMaxBuildHeight();
+        BlockPos.MutableBlockPos p = startPos.mutable();
+
+        for (int y = startPos.getY(); y < maxY; y++) {
+            p.setY(y);
+            if (!level.getBlockState(p).getCollisionShape(level, p).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // 修改站台 BlockState
+    private void setStationOccupied(Level level, BlockPos pos, boolean occupied) {
+        BlockState state = level.getBlockState(pos);
+        if (state.is(ModBlocks.DOCKING_STATION.get()) && state.hasProperty(DockingStationBlock.OCCUPIED)) {
+            if (state.getValue(DockingStationBlock.OCCUPIED) != occupied) {
+                level.setBlock(pos, state.setValue(DockingStationBlock.OCCUPIED, occupied), 3);
+            }
         }
     }
 
@@ -426,9 +559,15 @@ public class CargoRocketEntity extends Entity {
         this.scheduleEntryIndex++;
         // 强制休息 200 tick (10秒)
         this.cooldown = 200;
+
+        // 锁定脚下的站台
+        BlockPos below = findStationBelow();
+        if (below != null) {
+            setStationOccupied(level(), below, true);
+        }
     }
 
-    // === 基础实体逻辑 (受伤、死亡等) ===
+    // === 基础实体逻辑 ===
     @Override
     public boolean hurt(@NotNull DamageSource source, float amount) {
         if (this.isInvulnerableTo(source)) {
@@ -437,6 +576,10 @@ public class CargoRocketEntity extends Entity {
 
         // 在服务端处理死亡逻辑
         if (!this.level().isClientSide && !this.isRemoved()) {
+            BlockPos stationPos = findStationBelow();
+            if (stationPos != null) {
+                setStationOccupied(level(), stationPos, false);
+            }
             // 如果不是创造模式玩家，掉落火箭物品
             boolean isCreative = source.getEntity() instanceof Player p && p.isCreative();
             if (!isCreative) {
