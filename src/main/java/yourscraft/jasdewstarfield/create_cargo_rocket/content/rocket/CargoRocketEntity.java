@@ -159,6 +159,9 @@ public class CargoRocketEntity extends Entity {
             compound.putInt("TargetY", targetStationPos.pos().getY());
             compound.putInt("TargetZ", targetStationPos.pos().getZ());
         }
+        if (this.targetStationName != null) {
+            compound.putString("TargetName", this.targetStationName);
+        }
     }
 
     @Override
@@ -362,6 +365,12 @@ public class CargoRocketEntity extends Entity {
             // 加载新的
             serverLevel.setChunkForced(currentPos.x, currentPos.z, true);
             forcedChunk = currentPos;
+
+            // 只要当前区块发生了变化（或者刚初始化），就更新记录
+            GlobalStationData.get(serverLevel).updateRocket(
+                    this.getUUID(),
+                    GlobalPos.of(level().dimension(), this.blockPosition())
+            );
         }
 
         // 2. 强制加载目标区块 (Target Loading)
@@ -398,7 +407,22 @@ public class CargoRocketEntity extends Entity {
             ServerLevel oldLevel = Objects.requireNonNull(level().getServer()).getLevel(forcedTargetChunk.dimension());
             if (oldLevel != null) {
                 ChunkPos oldChunk = new ChunkPos(forcedTargetChunk.pos());
-                oldLevel.setChunkForced(oldChunk.x, oldChunk.z, false);
+                boolean isSameAsSelf = false;
+
+                // 1. 维度必须相同
+                if (level().dimension().equals(forcedTargetChunk.dimension())) {
+                    // 2. 坐标必须相同 (优先使用 forcedChunk 缓存，如果没有则计算当前位置)
+                    ChunkPos currentSelf = (forcedChunk != null) ? forcedChunk : this.chunkPosition();
+                    if (currentSelf.equals(oldChunk)) {
+                        isSameAsSelf = true;
+                    }
+                }
+
+                // 只有当目标区块 不是 自身区块时，才真正执行卸载
+                // 如果是同一个区块，说明 Self Loading 还在负责它，我们只需清除 Target 引用即可
+                if (!isSameAsSelf) {
+                    oldLevel.setChunkForced(oldChunk.x, oldChunk.z, false);
+                }
             }
             forcedTargetChunk = null;
         }
@@ -737,14 +761,25 @@ public class CargoRocketEntity extends Entity {
     public void remove(@NotNull RemovalReason reason) {
         if (!level().isClientSide) {
             // 1. 释放所有强制加载的区块
-            releaseAllForcedChunks();
-
-            // 2. 如果实体是被移除，而不是因为跨维度传送，则尝试解锁下方站台的占用状态
-            if (reason != RemovalReason.CHANGED_DIMENSION) {
+            if (reason == RemovalReason.CHANGED_DIMENSION) {
+                // 如果是跨维度传送：
+                // 1. 释放当前维度(Self)的区块加载，因为我们要离开了。
+                if (level() instanceof ServerLevel serverLevel && forcedChunk != null) {
+                    serverLevel.setChunkForced(forcedChunk.x, forcedChunk.z, false);
+                    forcedChunk = null;
+                }
+                forcedTargetChunk = null;
+            } else {
+                // 2. 如果实体是被移除，而不是因为跨维度传送，则尝试解锁下方站台的占用状态
                 BlockPos stationPos = findStationBelow();
                 if (stationPos != null) {
                     setStationOccupied(level(), stationPos, false);
                 }
+                if (level() instanceof ServerLevel sl) {
+                    GlobalStationData.get(sl).removeRocket(this.getUUID());
+                }
+                // 释放所有加载
+                releaseAllForcedChunks();
             }
         }
         super.remove(reason);

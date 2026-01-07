@@ -10,16 +10,15 @@ import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
 import org.jetbrains.annotations.NotNull;
 import yourscraft.jasdewstarfield.create_cargo_rocket.CreateCargoRocket;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * 存储服务器上所有已命名的停机坪数据。
@@ -32,6 +31,8 @@ public class GlobalStationData extends SavedData {
     private final Map<String, GlobalPos> stations = new HashMap<>();
     // 反向查找：坐标 -> 站点名称 (用于防止重复放置或快速查找)
     private final Map<GlobalPos, String> posToName = new HashMap<>();
+    // 存储 活跃火箭的 UUID -> 位置 映射
+    private final Map<UUID, GlobalPos> activeRockets = new HashMap<>();
 
     public GlobalStationData() {}
 
@@ -90,6 +91,37 @@ public class GlobalStationData extends SavedData {
         return Collections.unmodifiableMap(stations);
     }
 
+    // 注册/更新火箭位置
+    public void updateRocket(UUID rocketId, GlobalPos pos) {
+        activeRockets.put(rocketId, pos);
+        setDirty();
+    }
+
+    // 移除火箭记录 (当火箭被拆掉或不再强加载时)
+    public void removeRocket(UUID rocketId) {
+        if (activeRockets.containsKey(rocketId)) {
+            activeRockets.remove(rocketId);
+            setDirty();
+        }
+    }
+
+    // 服务器启动时调用：复活所有火箭所在的区块
+    public void restoreForcedChunks(MinecraftServer server) {
+        CreateCargoRocket.LOGGER.info("Restoring {} active rocket chunks...", activeRockets.size());
+
+        for (Map.Entry<UUID, GlobalPos> entry : activeRockets.entrySet()) {
+            GlobalPos globalPos = entry.getValue();
+            ServerLevel level = server.getLevel(globalPos.dimension());
+
+            if (level != null) {
+                // 将 BlockPos 转换为 ChunkPos 并强制加载
+                ChunkPos chunkPos = new ChunkPos(globalPos.pos());
+                level.setChunkForced(chunkPos.x, chunkPos.z, true);
+                CreateCargoRocket.LOGGER.debug("Forced chunk for rocket {}: {}", entry.getKey(), chunkPos);
+            }
+        }
+    }
+
 
     // === NBT 序列化逻辑 ===
 
@@ -111,8 +143,6 @@ public class GlobalStationData extends SavedData {
                     ResourceLocation dimLoc = ResourceLocation.parse(dimStr);
                     ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, dimLoc);
 
-                    // 更加稳健的 BlockPos 读取方式
-                    // NbtUtils.readBlockPos 需要读取包含 X, Y, Z 的 CompoundTag
                     BlockPos pos = NbtUtils.readBlockPos(stationTag, "Pos").orElse(BlockPos.ZERO);
 
                     GlobalPos globalPos = GlobalPos.of(dim, pos);
@@ -127,28 +157,50 @@ public class GlobalStationData extends SavedData {
         } else {
             CreateCargoRocket.LOGGER.info("No 'Stations' tag found in SavedData.");
         }
+
+        if (tag.contains("ActiveRockets", Tag.TAG_LIST)) {
+            ListTag rocketList = tag.getList("ActiveRockets", Tag.TAG_COMPOUND);
+            CreateCargoRocket.LOGGER.info("Found {} active rockets in NBT.", rocketList.size());
+            for (Tag t : rocketList) {
+                try {
+                    CompoundTag rocketTag = (CompoundTag) t;
+                    UUID id = rocketTag.getUUID("ID");
+
+                    ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(rocketTag.getString("Dimension")));
+                    BlockPos pos = NbtUtils.readBlockPos(rocketTag, "Pos").orElse(BlockPos.ZERO);
+
+                    data.activeRockets.put(id, GlobalPos.of(dim, pos));
+                } catch (Exception e) {
+                    CreateCargoRocket.LOGGER.error("Failed to load active rocket entry", e);
+                }
+            }
+        }
+
         return data;
     }
 
     @Override
     public @NotNull CompoundTag save(@NotNull CompoundTag tag, HolderLookup.@NotNull Provider provider) {
-        CreateCargoRocket.LOGGER.info("Saving Rocket GlobalStationData to disk... (Count: {})", stations.size());
         ListTag list = new ListTag();
         for (Map.Entry<String, GlobalPos> entry : stations.entrySet()) {
-            try {
-                CompoundTag stationTag = new CompoundTag();
-                stationTag.putString("Name", entry.getKey());
-                stationTag.putString("Dimension", entry.getValue().dimension().location().toString());
-
-                // 写入 Pos 作为一个 CompoundTag
-                stationTag.put("Pos", NbtUtils.writeBlockPos(entry.getValue().pos()));
-
-                list.add(stationTag);
-            } catch (Exception e) {
-                CreateCargoRocket.LOGGER.error("Failed to save station: {}", entry.getKey(), e);
-            }
+            CompoundTag stationTag = new CompoundTag();
+            stationTag.putString("Name", entry.getKey());
+            stationTag.putString("Dimension", entry.getValue().dimension().location().toString());
+            stationTag.put("Pos", NbtUtils.writeBlockPos(entry.getValue().pos()));
+            list.add(stationTag);
         }
         tag.put("Stations", list);
+
+        ListTag rocketList = new ListTag();
+        for (Map.Entry<UUID, GlobalPos> entry : activeRockets.entrySet()) {
+            CompoundTag rocketTag = new CompoundTag();
+            rocketTag.putUUID("ID", entry.getKey());
+            rocketTag.putString("Dimension", entry.getValue().dimension().location().toString());
+            rocketTag.put("Pos", NbtUtils.writeBlockPos(entry.getValue().pos()));
+            rocketList.add(rocketTag);
+        }
+        tag.put("ActiveRockets", rocketList);
+
         return tag;
     }
 }

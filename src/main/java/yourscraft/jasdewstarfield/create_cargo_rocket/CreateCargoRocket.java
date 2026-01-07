@@ -2,6 +2,8 @@ package yourscraft.jasdewstarfield.create_cargo_rocket;
 
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -14,6 +16,7 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import org.slf4j.Logger;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.rocket.CargoRocketRenderer;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.GlobalStationData;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlockEntities;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModEntities;
@@ -41,7 +44,12 @@ public class CreateCargoRocket {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        LOGGER.info("[Create Cargo Rocket] HELLO from server starting");
+        LOGGER.info("[Create Cargo Rocket] Server starting, restoring persistent chunks...");
+
+        ServerLevel overworld = event.getServer().getLevel(Level.OVERWORLD);
+        if (overworld != null) {
+            GlobalStationData.get(overworld).restoreForcedChunks(event.getServer());
+        }
     }
 
     @EventBusSubscriber(modid = MODID, value = Dist.CLIENT)

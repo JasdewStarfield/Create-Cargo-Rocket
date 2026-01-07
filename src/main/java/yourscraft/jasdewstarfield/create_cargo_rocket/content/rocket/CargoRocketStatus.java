@@ -127,10 +127,21 @@ public class CargoRocketStatus {
      * @param args 翻译参数
      */
     private void displayInformation(String key, boolean isGood, Object... args) {
-        MutableComponent component = Component.literal(" - ").withStyle(ChatFormatting.GRAY)
-                .append(Component.translatable(CreateCargoRocket.MODID + ".status." + key, args)
-                        .withStyle(style -> style.withColor(isGood ? 0xD5ECC2 : 0xFFD3B4))); // 复制 Create 的配色
-        queued.add(component);
+        // 增加参数非空检查，将 null 替换为 "Unknown" 防止编码错误
+        if (args != null) {
+            for (int i = 0; i < args.length; i++) {
+                if (args[i] == null) {
+                    args[i] = "Unknown";
+                }
+            }
+        }
+
+        if (args != null) {
+            MutableComponent component = Component.literal(" - ").withStyle(ChatFormatting.GRAY) // 复制 Create 的配色
+                    .append(Component.translatable(CreateCargoRocket.MODID + ".status." + key, args)
+                            .withStyle(style -> style.withColor(isGood ? 0xD5ECC2 : 0xFFD3B4)));
+            queued.add(component);
+        }
     }
 
     public void tick(Level level) {
