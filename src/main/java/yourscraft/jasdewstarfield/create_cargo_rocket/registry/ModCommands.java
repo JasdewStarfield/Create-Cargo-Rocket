@@ -1,6 +1,7 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.registry;
 
 import com.mojang.brigadier.Command;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -28,6 +29,11 @@ public class ModCommands {
                         .then(Commands.literal("allstations")
                                 .requires(s -> s.hasPermission(2))
                                 .executes(ModCommands::listStations)
+                        )
+                        .then(Commands.literal("status")
+                                .then(Commands.argument("name", StringArgumentType.greedyString())
+                                        .executes(ModCommands::queryRocketStatus)
+                                )
                         )
         );
     }
@@ -68,5 +74,22 @@ public class ModCommands {
         }
 
         return Command.SINGLE_SUCCESS;
+    }
+
+    private static int queryRocketStatus(CommandContext<CommandSourceStack> context) {
+        String name = StringArgumentType.getString(context, "name");
+        ServerLevel level = context.getSource().getLevel();
+        GlobalStationData data = GlobalStationData.get(level);
+
+        GlobalPos pos = data.getRocketPos(name);
+        if (pos == null) {
+            context.getSource().sendFailure(Component.literal("Rocket not found: " + name));
+            return 0;
+        }
+
+        // 找到了火箭位置
+        context.getSource().sendSuccess(() -> Component.literal("Rocket '" + name + "' is at " +
+                pos.dimension().location() + " " + pos.pos().toShortString()), false);
+        return 1;
     }
 }

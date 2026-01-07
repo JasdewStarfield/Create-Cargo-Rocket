@@ -3,11 +3,14 @@ package yourscraft.jasdewstarfield.create_cargo_rocket.content.rocket;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import yourscraft.jasdewstarfield.create_cargo_rocket.CreateCargoRocket;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 public class CargoRocketStatus {
 
@@ -147,21 +150,43 @@ public class CargoRocketStatus {
     public void tick(Level level) {
         if (queued.isEmpty()) return;
 
-        // 向全服广播消息
         if (level.getServer() != null) {
-            // 构造标题头: [Cargo Rocket] <Rocket Name>
-            MutableComponent header = Component.literal("[Cargo Rocket] ")
-                    .withStyle(ChatFormatting.GOLD)
-                    .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.WHITE));
+            UUID ownerId = rocket.getOwner();
+            ServerPlayer player = null;
 
-            // 先发标题
-            level.getServer().getPlayerList().broadcastSystemMessage(header, false);
+            if (ownerId != null) {
+                player = level.getServer().getPlayerList().getPlayer(ownerId);
+            }
 
-            // 再发所有堆积的具体原因
-            for (Component message : queued) {
-                level.getServer().getPlayerList().broadcastSystemMessage(message, false);
+            if (player != null) {
+                sendToPlayer(player);
+            } else if (ownerId == null) {
+                sendToGlobal(level);
             }
         }
         queued.clear();
+    }
+
+    private void sendToPlayer(net.minecraft.server.level.ServerPlayer player) {
+        MutableComponent header = Component.literal("[Cargo Rocket] ")
+                .withStyle(ChatFormatting.GOLD)
+                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.WHITE));
+
+        player.sendSystemMessage(header);
+        for (Component message : queued) {
+            player.sendSystemMessage(message);
+        }
+    }
+
+    private void sendToGlobal(Level level) {
+        // ... 原来的广播逻辑 ...
+        MutableComponent header = Component.literal("[Cargo Rocket] ")
+                .withStyle(ChatFormatting.GOLD)
+                .append(rocket.getDisplayName().copy().withStyle(ChatFormatting.WHITE));
+
+        Objects.requireNonNull(level.getServer()).getPlayerList().broadcastSystemMessage(header, false);
+        for (Component message : queued) {
+            level.getServer().getPlayerList().broadcastSystemMessage(message, false);
+        }
     }
 }

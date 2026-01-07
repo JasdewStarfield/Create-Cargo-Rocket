@@ -33,6 +33,8 @@ public class GlobalStationData extends SavedData {
     private final Map<GlobalPos, String> posToName = new HashMap<>();
     // 存储 活跃火箭的 UUID -> 位置 映射
     private final Map<UUID, GlobalPos> activeRockets = new HashMap<>();
+    // 名字 -> UUID 的映射 (用于命令查找)
+    private final Map<String, UUID> rocketNames = new HashMap<>();
 
     public GlobalStationData() {}
 
@@ -97,12 +99,46 @@ public class GlobalStationData extends SavedData {
         setDirty();
     }
 
+    // 更新火箭名字索引
+    public void updateRocketName(UUID rocketId, String name) {
+        rocketNames.values().removeIf(id -> id.equals(rocketId));
+
+        rocketNames.put(name, rocketId);
+        setDirty();
+    }
+
+    public String getUniqueRocketName(String baseName) {
+        // 如果名字没被占用，直接返回
+        if (!rocketNames.containsKey(baseName)) {
+            return baseName;
+        }
+
+        // 如果被占用了，尝试添加序号 (1), (2), ...
+        int i = 1;
+        while (true) {
+            String newName = baseName + " (" + i + ")";
+            if (!rocketNames.containsKey(newName)) {
+                return newName;
+            }
+            i++;
+        }
+    }
+
     // 移除火箭记录 (当火箭被拆掉或不再强加载时)
     public void removeRocket(UUID rocketId) {
         if (activeRockets.containsKey(rocketId)) {
             activeRockets.remove(rocketId);
+            rocketNames.values().removeIf(id -> id.equals(rocketId));
             setDirty();
         }
+    }
+
+    public GlobalPos getRocketPos(String name) {
+        UUID id = rocketNames.get(name);
+        if (id != null) {
+            return activeRockets.get(id);
+        }
+        return null;
     }
 
     // 服务器启动时调用：复活所有火箭所在的区块
@@ -176,6 +212,19 @@ public class GlobalStationData extends SavedData {
             }
         }
 
+        if (tag.contains("RocketNames", Tag.TAG_LIST)) {
+            ListTag list = tag.getList("RocketNames", Tag.TAG_COMPOUND);
+            CreateCargoRocket.LOGGER.info("Found {} rockets names in NBT.", list.size());
+            for (Tag t : list) {
+                try {
+                    CompoundTag ct = (CompoundTag) t;
+                    data.rocketNames.put(ct.getString("Name"), ct.getUUID("ID"));
+                } catch (Exception e) {
+                    CreateCargoRocket.LOGGER.error("Failed to load rocket name", e);
+                }
+            }
+        }
+
         return data;
     }
 
@@ -200,6 +249,15 @@ public class GlobalStationData extends SavedData {
             rocketList.add(rocketTag);
         }
         tag.put("ActiveRockets", rocketList);
+
+        ListTag nameList = new ListTag();
+        for (Map.Entry<String, UUID> entry : rocketNames.entrySet()) {
+            CompoundTag t = new CompoundTag();
+            t.putString("Name", entry.getKey());
+            t.putUUID("ID", entry.getValue());
+            nameList.add(t);
+        }
+        tag.put("RocketNames", nameList);
 
         return tag;
     }

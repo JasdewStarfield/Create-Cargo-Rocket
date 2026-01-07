@@ -53,6 +53,8 @@ import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModItems;
 
 import javax.annotation.Nullable;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 public class CargoRocketEntity extends Entity {
 
@@ -68,6 +70,8 @@ public class CargoRocketEntity extends Entity {
 
     // === 同步数据 ===
     private static final EntityDataAccessor<Integer> STATE = SynchedEntityData.defineId(CargoRocketEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<String> ROCKET_NAME = SynchedEntityData.defineId(CargoRocketEntity.class, EntityDataSerializers.STRING);
+    private static final EntityDataAccessor<Optional<UUID>> OWNER = SynchedEntityData.defineId(CargoRocketEntity.class, EntityDataSerializers.OPTIONAL_UUID);
 
     // 27格库存，类似潜影盒或单箱
     public final ItemStackHandler inventory = new ItemStackHandler(27) {};
@@ -87,6 +91,10 @@ public class CargoRocketEntity extends Entity {
 
     public final CargoRocketStatus status;
 
+    private String rocketName = "Cargo Rocket"; // 默认名称
+    @Nullable
+    private UUID owner; // 拥有者
+
     // 区块加载管理 (Chunk Loading)
     private ChunkPos forcedChunk; // 当前火箭所在的强加载区块
     private GlobalPos forcedTargetChunk; // 远程强加载的目标区块（用于轨道待命/飞行时）
@@ -104,15 +112,8 @@ public class CargoRocketEntity extends Entity {
     @Override
     protected void defineSynchedData(SynchedEntityData.@NotNull Builder builder) {
         builder.define(STATE, RocketState.IDLE.ordinal());
-    }
-
-    // === Getter/Setter for State ===
-    public RocketState getRocketState() {
-        return RocketState.values()[this.entityData.get(STATE)];
-    }
-
-    public void setRocketState(RocketState state) {
-        this.entityData.set(STATE, state.ordinal());
+        builder.define(ROCKET_NAME, "Cargo Rocket");
+        builder.define(OWNER, Optional.empty());
     }
 
     // === NBT 保存与读取 ===
@@ -126,8 +127,12 @@ public class CargoRocketEntity extends Entity {
             this.isAutoSchedule = compound.getBoolean("IsAutoSchedule");
         }
 
-        this.cooldown = compound.getInt("Cooldown");
-        setRocketState(RocketState.values()[compound.getInt("RocketState")]);
+        if (compound.contains("Cooldown")) {
+            this.cooldown = compound.getInt("Cooldown");
+        }
+        if  (compound.contains("RocketState")) {
+            setRocketState(RocketState.values()[compound.getInt("RocketState")]);
+        }
 
         // 如果在飞行中保存了，尝试恢复目标
         if (compound.contains("TargetDimension")) {
@@ -137,6 +142,13 @@ public class CargoRocketEntity extends Entity {
         }
         if (compound.contains("TargetName")) {
             this.targetStationName = compound.getString("TargetName");
+        }
+
+        if (compound.contains("RocketName")) {
+            this.rocketName = compound.getString("RocketName");
+        }
+        if (compound.contains("Owner")) {
+            this.owner = compound.getUUID("Owner");
         }
     }
 
@@ -162,8 +174,44 @@ public class CargoRocketEntity extends Entity {
         if (this.targetStationName != null) {
             compound.putString("TargetName", this.targetStationName);
         }
+
+        compound.putString("RocketName", rocketName);
+        if (owner != null) {
+            compound.putUUID("Owner", owner);
+        }
     }
 
+    // === Getter/Setter ===
+    public RocketState getRocketState() {
+        return RocketState.values()[this.entityData.get(STATE)];
+    }
+
+    public void setRocketState(RocketState state) {
+        this.entityData.set(STATE, state.ordinal());
+    }
+
+    public void setRocketName(String name) {
+        this.rocketName = name;
+        // 如果改名了，同步给 GlobalStationData
+        if (!level().isClientSide && level() instanceof ServerLevel sl) {
+            GlobalStationData.get(sl).updateRocketName(this.getUUID(), name);
+        }
+    }
+
+    public String getRocketName() {
+        return rocketName;
+    }
+
+    public void setOwner(@Nullable UUID owner) {
+        this.owner = owner;
+    }
+
+    @Nullable
+    public UUID getOwner() {
+        return owner;
+    }
+
+    // 交互逻辑
     @Override
     public @NotNull InteractionResult interact(@NotNull Player player, @NotNull InteractionHand hand) {
         if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
@@ -178,6 +226,7 @@ public class CargoRocketEntity extends Entity {
                 dismantleRocket(player);
             } else {
                 // （临时）调试信息
+                player.sendSystemMessage(Component.literal("Name: " + rocketName + " | Owner: " + (owner == null ? "None" : owner)));
                 player.sendSystemMessage(Component.literal("State: " + getRocketState() + " | Cooldown: " + cooldown));
                 if (schedule != null) {
                     String next = getNextStationName();
@@ -783,6 +832,11 @@ public class CargoRocketEntity extends Entity {
             }
         }
         super.remove(reason);
+    }
+
+    @Override
+    public @NotNull Component getDisplayName() {
+        return Component.literal(getRocketName());
     }
 
     @Override
