@@ -1,5 +1,6 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.rocket;
 
+import com.simibubi.create.AllDataComponents;
 import com.simibubi.create.AllItems;
 import com.simibubi.create.AllSoundEvents;
 import com.simibubi.create.content.trains.schedule.Schedule;
@@ -25,6 +26,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -35,10 +37,12 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.portal.DimensionTransition;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.items.ItemStackHandler;
 import org.jetbrains.annotations.NotNull;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlock;
@@ -48,6 +52,7 @@ import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModEntities;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModItems;
 
 import javax.annotation.Nullable;
+import java.util.Objects;
 
 public class CargoRocketEntity extends Entity {
 
@@ -81,6 +86,10 @@ public class CargoRocketEntity extends Entity {
     private String targetStationName;
 
     public final CargoRocketStatus status;
+
+    // 区块加载管理 (Chunk Loading)
+    private ChunkPos forcedChunk; // 当前火箭所在的强加载区块
+    private GlobalPos forcedTargetChunk; // 远程强加载的目标区块（用于轨道待命/飞行时）
 
     public CargoRocketEntity(EntityType<?> entityType, Level level) {
         super(entityType, level);
@@ -154,32 +163,53 @@ public class CargoRocketEntity extends Entity {
 
     @Override
     public @NotNull InteractionResult interact(@NotNull Player player, @NotNull InteractionHand hand) {
-        if (level().isClientSide) return InteractionResult.PASS;
+        if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
 
         ItemStack stack = player.getItemInHand(hand);
 
-        // 0. 如果处于 STUCK 状态，允许玩家右键重置
+        // 1. 扳手拆卸 (潜行 + 扳手)
+        if (stack.is(Tags.Items.TOOLS_WRENCH)) {
+            if (level().isClientSide) return InteractionResult.SUCCESS;
+
+            if (player.isShiftKeyDown()) {
+                dismantleRocket(player);
+            } else {
+                // （临时）调试信息
+                player.sendSystemMessage(Component.literal("State: " + getRocketState() + " | Cooldown: " + cooldown));
+                if (schedule != null) {
+                    String next = getNextStationName();
+                    player.sendSystemMessage(Component.literal("Next Station: " + (next == null ? "None" : next)));
+                }
+                player.sendSystemMessage(Component.literal("Chunk: " + (forcedChunk == null ? "None" : forcedChunk.toString())));
+            }
+
+            return InteractionResult.SUCCESS;
+        }
+
+        // 2. 如果处于 STUCK 状态，允许玩家右键重置
         if (getRocketState() == RocketState.STUCK) {
+            if (level().isClientSide) return InteractionResult.SUCCESS;
+
             status.manualReset();
             setRocketState(RocketState.IDLE);
             this.cooldown = 0;
             return InteractionResult.SUCCESS;
         }
 
-        // 1. 如果玩家拿着 Create 的时刻表
+        // 只能在 idle 状态下编辑排班
+        if (getRocketState() != RocketState.IDLE) {
+            return InteractionResult.PASS;
+        }
+
+        // 3. 如果玩家拿着 Create 的时刻表
         if (AllItems.SCHEDULE.isIn(stack)) {
             if (level().isClientSide) return InteractionResult.SUCCESS;
 
             // 获取时刻表内的数据
             Schedule newSchedule = ScheduleItem.getSchedule(level().registryAccess(), stack);
 
-            // 如果时刻表是空的（没数据）
+            // 如果是空的
             if (newSchedule == null) {
-                // 如果火箭里有时刻表，玩家想拿下来
-                if (this.schedule != null) {
-                    dropSchedule(player);
-                    return InteractionResult.SUCCESS;
-                }
                 return InteractionResult.PASS;
             }
 
@@ -188,6 +218,11 @@ public class CargoRocketEntity extends Entity {
                 player.displayClientMessage(Component.translatable("create.schedule.no_stops").withStyle(ChatFormatting.RED), true);
                 AllSoundEvents.DENY.playOnServer(level(), blockPosition(), 1, 1);
                 return InteractionResult.SUCCESS;
+            }
+
+            // 取出原有时刻表
+            if (this.schedule != null) {
+                getScheduleCopy(player);
             }
 
             // 应用新时刻表
@@ -207,36 +242,76 @@ public class CargoRocketEntity extends Entity {
             return InteractionResult.SUCCESS;
         }
 
-        // 2. 调试用
-        if (hand == InteractionHand.MAIN_HAND && stack.isEmpty()) {
-            player.sendSystemMessage(Component.literal("State: " + getRocketState() + " | Cooldown: " + cooldown));
-            if (schedule != null) {
-                String next = getNextStationName();
-                player.sendSystemMessage(Component.literal("Next Station: " + (next == null ? "None" : next)));
+        // 4. 空手右键取出时刻表
+        if (stack.isEmpty()) {
+            // 如果火箭里有时刻表
+            if (this.schedule != null) {
+                if (level().isClientSide) return InteractionResult.SUCCESS;
+
+                dropSchedule(player);
+                return InteractionResult.SUCCESS;
             }
-            return InteractionResult.SUCCESS;
         }
+
         return InteractionResult.PASS;
     }
 
     private void dropSchedule(Player player) {
         if (this.schedule == null) return;
 
-        ItemStack stack = AllItems.SCHEDULE.asStack();
-        this.schedule.savedProgress = this.scheduleEntryIndex;
-        stack.set(com.simibubi.create.AllDataComponents.TRAIN_SCHEDULE, this.schedule.write(level().registryAccess()));
-
-        if (player instanceof ServerPlayer sp) {
-            sp.getInventory().placeItemBackInInventory(stack);
-        } else {
-            spawnAtLocation(stack);
-        }
+        getScheduleCopy(player);
 
         AllSoundEvents.playItemPickup(player);
         player.displayClientMessage(Component.translatable("create.schedule.removed_from_train"), true);
 
         this.schedule = null;
         this.scheduleEntryIndex = 0;
+    }
+
+    private void dismantleRocket(Player player) {
+        if (this.level().isClientSide || this.isRemoved()) return;
+
+        // 掉落火箭物品
+        ItemStack rocketStack = new ItemStack(ModItems.CARGO_ROCKET.get());
+        if (player instanceof ServerPlayer sp) {
+            if (!player.isCreative()) {
+                sp.getInventory().placeItemBackInInventory(rocketStack);
+            }
+        } else {
+            this.spawnAtLocation(rocketStack);
+        }
+
+        // 掉落时刻表
+        if (this.schedule != null) {
+            getScheduleCopy(player);
+        }
+
+        // 掉落库存
+        SimpleContainer tempContainer = new SimpleContainer(inventory.getSlots());
+        for (int i = 0; i < inventory.getSlots(); i++) {
+            tempContainer.setItem(i, inventory.getStackInSlot(i));
+        }
+        Containers.dropContents(this.level(), this.blockPosition(), tempContainer);
+
+        // 播放扳手音效
+        AllSoundEvents.WRENCH_ROTATE.playOnServer(level(), blockPosition(), 1, 1);
+
+        // 移除实体
+        this.discard();
+    }
+
+    private void getScheduleCopy(Player player) {
+        if (this.schedule == null) return;
+
+        ItemStack stack = AllItems.SCHEDULE.asStack();
+        this.schedule.savedProgress = this.scheduleEntryIndex;
+        stack.set(AllDataComponents.TRAIN_SCHEDULE, this.schedule.write(level().registryAccess()));
+
+        if (player instanceof ServerPlayer sp) {
+            sp.getInventory().placeItemBackInInventory(stack);
+        } else {
+            spawnAtLocation(stack);
+        }
     }
 
     @Override
@@ -260,6 +335,7 @@ public class CargoRocketEntity extends Entity {
         this.setDeltaMovement(this.getDeltaMovement().scale(0.98));
 
         if (!level().isClientSide) {
+            manageChunkLoading();
             status.tick(level());
             // 状态机逻辑
             switch (getRocketState()) {
@@ -271,6 +347,73 @@ public class CargoRocketEntity extends Entity {
                 case STUCK -> { /* 等待玩家操作 */ }
             }
         }
+    }
+
+    private void manageChunkLoading() {
+        if (!(level() instanceof ServerLevel serverLevel)) return;
+
+        // 1. 强制加载当前所在的区块 (Self Loading)
+        ChunkPos currentPos = this.chunkPosition();
+        if (forcedChunk == null || !forcedChunk.equals(currentPos)) {
+            // 释放旧的
+            if (forcedChunk != null) {
+                serverLevel.setChunkForced(forcedChunk.x, forcedChunk.z, false);
+            }
+            // 加载新的
+            serverLevel.setChunkForced(currentPos.x, currentPos.z, true);
+            forcedChunk = currentPos;
+        }
+
+        // 2. 强制加载目标区块 (Target Loading)
+        // 只有在需要远程检测 (Flight/Orbiting) 或即将抵达 (Landing) 时才加载
+        RocketState state = getRocketState();
+        boolean needsTargetLoaded = (state == RocketState.FLIGHT || state == RocketState.ORBITING || state == RocketState.LANDING)
+                && targetStationPos != null;
+
+        if (needsTargetLoaded) {
+            // 检查目标维度是否已加载
+            ServerLevel targetLevel = serverLevel.getServer().getLevel(targetStationPos.dimension());
+            if (targetLevel != null) {
+                ChunkPos targetChunk = new ChunkPos(targetStationPos.pos());
+                GlobalPos targetGlobal = GlobalPos.of(targetStationPos.dimension(), targetStationPos.pos());
+
+                // 如果目标发生了变化（或者之前没加载），则更新
+                if (forcedTargetChunk == null || !forcedTargetChunk.equals(targetGlobal)) {
+                    // 释放旧目标的加载（如果存在且不仅是当前位置）
+                    releaseTargetChunk();
+
+                    // 加载新目标
+                    targetLevel.setChunkForced(targetChunk.x, targetChunk.z, true);
+                    forcedTargetChunk = targetGlobal;
+                }
+            }
+        } else {
+            // 如果不需要加载目标了（比如回到 IDLE），释放目标区块
+            releaseTargetChunk();
+        }
+    }
+
+    private void releaseTargetChunk() {
+        if (forcedTargetChunk != null) {
+            ServerLevel oldLevel = Objects.requireNonNull(level().getServer()).getLevel(forcedTargetChunk.dimension());
+            if (oldLevel != null) {
+                ChunkPos oldChunk = new ChunkPos(forcedTargetChunk.pos());
+                oldLevel.setChunkForced(oldChunk.x, oldChunk.z, false);
+            }
+            forcedTargetChunk = null;
+        }
+    }
+
+    private void releaseAllForcedChunks() {
+        if (!(level() instanceof ServerLevel serverLevel)) return;
+
+        // 释放自身
+        if (forcedChunk != null) {
+            serverLevel.setChunkForced(forcedChunk.x, forcedChunk.z, false);
+            forcedChunk = null;
+        }
+        // 释放目标
+        releaseTargetChunk();
     }
 
     /**
@@ -570,40 +713,41 @@ public class CargoRocketEntity extends Entity {
     // === 基础实体逻辑 ===
     @Override
     public boolean hurt(@NotNull DamageSource source, float amount) {
-        if (this.isInvulnerableTo(source)) {
-            return false;
-        }
-
-        // 在服务端处理死亡逻辑
-        if (!this.level().isClientSide && !this.isRemoved()) {
-            BlockPos stationPos = findStationBelow();
-            if (stationPos != null) {
-                setStationOccupied(level(), stationPos, false);
+        // 允许掉出世界死亡 (Void Damage)
+        if (source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            if (!level().isClientSide) {
+                this.discard();
             }
-            // 如果不是创造模式玩家，掉落火箭物品
-            boolean isCreative = source.getEntity() instanceof Player p && p.isCreative();
-            if (!isCreative) {
-                this.spawnAtLocation(ModItems.CARGO_ROCKET.get());
-                if (this.schedule != null) {
-                    ItemStack scheduleStack = AllItems.SCHEDULE.asStack();
-                    scheduleStack.set(com.simibubi.create.AllDataComponents.TRAIN_SCHEDULE, this.schedule.write(level().registryAccess()));
-                    this.spawnAtLocation(scheduleStack);
-                }
-            }
-
-            // 掉落库存内的物品
-            SimpleContainer tempContainer = new SimpleContainer(inventory.getSlots());
-            for (int i = 0; i < inventory.getSlots(); i++) {
-                tempContainer.setItem(i, inventory.getStackInSlot(i));
-            }
-            Containers.dropContents(this.level(), this.blockPosition(), tempContainer);
-
-            // 移除实体
-            this.discard();
             return true;
         }
 
-        return true;
+        // 允许创造模式玩家左键移除
+        if (source.getEntity() instanceof Player player && player.isCreative()) {
+            if (!level().isClientSide) {
+                this.discard();
+            }
+            return true;
+        }
+
+        // 免疫其他所有伤害 (生存模式玩家、怪物等)
+        return false;
+    }
+
+    @Override
+    public void remove(@NotNull RemovalReason reason) {
+        if (!level().isClientSide) {
+            // 1. 释放所有强制加载的区块
+            releaseAllForcedChunks();
+
+            // 2. 如果实体是被移除，而不是因为跨维度传送，则尝试解锁下方站台的占用状态
+            if (reason != RemovalReason.CHANGED_DIMENSION) {
+                BlockPos stationPos = findStationBelow();
+                if (stationPos != null) {
+                    setStationOccupied(level(), stationPos, false);
+                }
+            }
+        }
+        super.remove(reason);
     }
 
     @Override
