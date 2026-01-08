@@ -1,10 +1,12 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.station;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.BaseEntityBlock;
@@ -19,7 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 
-public class DockingStationDummyBlock extends BaseEntityBlock {
+public class DockingStationDummyBlock extends BaseEntityBlock implements IWrenchable {
     public static final MapCodec<DockingStationDummyBlock> CODEC = simpleCodec(DockingStationDummyBlock::new);
 
     public static final BooleanProperty OCCUPIED = BooleanProperty.create("occupied");
@@ -88,5 +90,50 @@ public class DockingStationDummyBlock extends BaseEntityBlock {
     @SuppressWarnings("deprecation")
     public @NotNull ItemStack getCloneItemStack(@NotNull LevelReader level, @NotNull BlockPos pos, @NotNull BlockState state) {
         return new ItemStack(ModBlocks.DOCKING_STATION.get());
+    }
+
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        BlockPos clickedPos = context.getClickedPos();
+        Level level = context.getLevel();
+
+        // 获取当前方块实体
+        if (level.getBlockEntity(clickedPos) instanceof DockingStationDummyBlockEntity dummy) {
+            BlockPos masterPos = dummy.getMasterPos();
+
+            // 如果找到了有效的主方块位置
+            if (masterPos != null && level.getBlockState(masterPos).getBlock() instanceof DockingStationBlock) {
+
+                // 构造一个新的 Context，把“点击位置”欺骗为主方块的位置
+                UseOnContext newContext = new UseOnContext(
+                        level,
+                        context.getPlayer(),
+                        context.getHand(),
+                        context.getItemInHand(),
+                        new BlockHitResult(
+                                context.getClickLocation(),
+                                context.getClickedFace(),
+                                masterPos,
+                                context.isInside()
+                        )
+                );
+
+                // 获取主方块的状态
+                BlockState masterState = level.getBlockState(masterPos);
+
+                // 调用主方块的默认拆卸逻辑 (IWrenchable.super)
+                // 这样会触发主方块的 onRemove，进而通过你的级联逻辑清理掉所有 Dummy
+                if (masterState.getBlock() instanceof IWrenchable) {
+                    return ((IWrenchable) masterState.getBlock()).onSneakWrenched(masterState, newContext);
+                }
+            }
+        }
+
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        return InteractionResult.PASS;
     }
 }

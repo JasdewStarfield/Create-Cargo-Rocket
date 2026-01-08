@@ -1,21 +1,22 @@
 package yourscraft.jasdewstarfield.create_cargo_rocket.content.station;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.BlockEntityTicker;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
@@ -25,7 +26,9 @@ import org.jetbrains.annotations.Nullable;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlockEntities;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 
-public class DockingStationBlock extends BaseEntityBlock {
+import java.util.List;
+
+public class DockingStationBlock extends BaseEntityBlock implements IWrenchable {
     public static final MapCodec<DockingStationBlock> CODEC = simpleCodec(DockingStationBlock::new);
 
     public static final BooleanProperty OCCUPIED = BooleanProperty.create("occupied");
@@ -152,5 +155,15 @@ public class DockingStationBlock extends BaseEntityBlock {
                 }
             }
         }
+    }
+
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        return IWrenchable.super.onSneakWrenched(state, context);
+    }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        return InteractionResult.PASS;
     }
 }
