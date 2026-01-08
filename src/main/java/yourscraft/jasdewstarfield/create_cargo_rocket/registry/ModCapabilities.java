@@ -5,6 +5,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import yourscraft.jasdewstarfield.create_cargo_rocket.CreateCargoRocket;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlockEntity;
 
 @EventBusSubscriber(modid = CreateCargoRocket.MODID)
 public class ModCapabilities {
@@ -25,6 +26,16 @@ public class ModCapabilities {
                 Capabilities.ItemHandler.BLOCK,
                 ModBlockEntities.DOCKING_STATION.get(),
                 (be, context) -> be.getItemHandler()
+        );
+
+        // 3. 为代理方块注册物品能力 -> 转发给主方块
+        event.registerBlockEntity(
+                Capabilities.ItemHandler.BLOCK,
+                ModBlockEntities.DOCKING_STATION_DUMMY.get(),
+                (dummy, context) -> {
+                    DockingStationBlockEntity master = dummy.getMasterBE();
+                    return master != null ? master.getItemHandler() : null;
+                }
         );
     }
 }

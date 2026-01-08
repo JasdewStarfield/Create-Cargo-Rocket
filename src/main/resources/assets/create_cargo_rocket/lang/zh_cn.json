@@ -11,5 +11,7 @@
   "create_cargo_rocket.status.manual_reset": "手动重置成功。系统待命中。",
   "create_cargo_rocket.status.orbiting_no_signal": "轨道待命：目标“%s”信号丢失，正在搜寻...",
   "create_cargo_rocket.status.orbiting_occupied": "轨道待命：目标“%s”被占用，正在排队...",
-  "create_cargo_rocket.status.orbit_cleared": "轨道指令：条件已满足，继续执行任务。"
+  "create_cargo_rocket.status.orbit_cleared": "轨道指令：条件已满足，继续执行任务。",
+
+  "create_cargo_rocket.station.not_enough_space": "清理空间以便放置火箭接驳站台"
 }

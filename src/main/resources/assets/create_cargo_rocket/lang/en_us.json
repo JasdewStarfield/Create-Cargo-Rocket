@@ -11,5 +11,7 @@
   "create_cargo_rocket.status.manual_reset": "Manual Reset Successful. Systems Standing By.",
   "create_cargo_rocket.status.orbiting_no_signal": "Orbit Idling: Destination '%s' has lost signal. Searching...",
   "create_cargo_rocket.status.orbiting_occupied": "Orbit Idling: Destination '%s' is occupied. Queuing...",
-  "create_cargo_rocket.status.orbit_cleared": "Orbit Signal: Conditions met. Continuing mission."
+  "create_cargo_rocket.status.orbit_cleared": "Orbit Signal: Conditions met. Continuing mission.",
+
+  "create_cargo_rocket.station.not_enough_space": "Clean up space to place Rocket Docking Station"
 }

@@ -6,7 +6,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -21,6 +23,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlockEntities;
+import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 
 public class DockingStationBlock extends BaseEntityBlock {
     public static final MapCodec<DockingStationBlock> CODEC = simpleCodec(DockingStationBlock::new);
@@ -71,6 +74,33 @@ public class DockingStationBlock extends BaseEntityBlock {
     }
 
     @Override
+    public void setPlacedBy(
+            @NotNull Level level,
+            @NotNull BlockPos pos,
+            @NotNull BlockState state,
+            @Nullable LivingEntity placer,
+            @NotNull ItemStack stack
+    ) {
+        super.setPlacedBy(level, pos, state, placer, stack);
+        if (level.isClientSide) return;
+
+        // 在周围 3x3 区域生成代理方块
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                if (x == 0 && z == 0) continue; // 跳过中心
+
+                BlockPos offsetPos = pos.offset(x, 0, z);
+                level.setBlock(offsetPos, ModBlocks.DOCKING_STATION_DUMMY.get().defaultBlockState(), 3);
+
+                // 设置代理方块指向中心
+                if (level.getBlockEntity(offsetPos) instanceof DockingStationDummyBlockEntity dummy) {
+                    dummy.setMasterPos(pos);
+                }
+            }
+        }
+    }
+
+    @Override
     public void onRemove(BlockState state, @NotNull Level level, @NotNull BlockPos pos, BlockState newState, boolean isMoving) {
         // 只有当方块类型改变（即方块被破坏或替换）时才执行
         if (!state.is(newState.getBlock())) {
@@ -82,20 +112,45 @@ public class DockingStationBlock extends BaseEntityBlock {
                     GlobalStationData.get((ServerLevel) level).removeStation(GlobalPos.of(level.dimension(), pos));
                 }
             }
+            if (!level.isClientSide) {
+                for (int x = -1; x <= 1; x++) {
+                    for (int z = -1; z <= 1; z++) {
+                        if (x == 0 && z == 0) continue;
+                        BlockPos offsetPos = pos.offset(x, 0, z);
+                        if (level.getBlockState(offsetPos).is(ModBlocks.DOCKING_STATION_DUMMY.get())) {
+                            level.destroyBlock(offsetPos, false);
+                        }
+                    }
+                }
+            }
         }
         // 必须调用 super，否则 BlockEntity 不会被移除
         super.onRemove(state, level, pos, newState, isMoving);
     }
 
-    @Nullable
-    @Override
-    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(
-            @NotNull Level level,
-            @NotNull BlockState state,
-            @NotNull BlockEntityType<T> blockEntityType
-    ) {
-        // 如果我们稍后需要让站台每 tick 执行逻辑（例如扫描火箭），这里会用到
-        // 目前返回 null
-        return null;
+    /**
+     * 静态辅助方法：统一设置 3x3 站台的占用状态
+     */
+    public static void setOccupied(Level level, BlockPos masterPos, boolean occupied) {
+        // 1. 更新主方块
+        BlockState masterState = level.getBlockState(masterPos);
+        if (masterState.is(ModBlocks.DOCKING_STATION.get())) {
+            level.setBlock(masterPos, masterState.setValue(OCCUPIED, occupied), 3);
+        }
+
+        // 2. 更新周围 8 个 Dummy 方块
+        for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+                if (x == 0 && z == 0) continue; // 跳过中心
+
+                BlockPos dummyPos = masterPos.offset(x, 0, z);
+                BlockState dummyState = level.getBlockState(dummyPos);
+
+                // 确保它是我们的 Dummy 方块才更新
+                if (dummyState.is(ModBlocks.DOCKING_STATION_DUMMY.get())) {
+                    level.setBlock(dummyPos, dummyState.setValue(DockingStationDummyBlock.OCCUPIED, occupied), 3);
+                }
+            }
+        }
     }
 }

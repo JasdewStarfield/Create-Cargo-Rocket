@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "occupied=false": {
+      "model": "create:block/andesite_casing"
+    },
+    "occupied=true": {
+      "model": "create:block/copper_casing"
+    }
+  }
+}

@@ -46,6 +46,7 @@ import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.items.ItemStackHandler;
 import org.jetbrains.annotations.NotNull;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlock;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationDummyBlockEntity;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.GlobalStationData;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModEntities;
@@ -722,9 +723,18 @@ public class CargoRocketEntity extends Entity {
     // 修改站台 BlockState
     private void setStationOccupied(Level level, BlockPos pos, boolean occupied) {
         BlockState state = level.getBlockState(pos);
-        if (state.is(ModBlocks.DOCKING_STATION.get()) && state.hasProperty(DockingStationBlock.OCCUPIED)) {
-            if (state.getValue(DockingStationBlock.OCCUPIED) != occupied) {
-                level.setBlock(pos, state.setValue(DockingStationBlock.OCCUPIED, occupied), 3);
+
+        // 如果是主方块，直接设置
+        if (state.is(ModBlocks.DOCKING_STATION.get())) {
+            DockingStationBlock.setOccupied(level, pos, occupied);
+        }
+        // 如果是 Dummy，找到主方块再设置 (防止火箭停偏了一点点)
+        else if (state.is(ModBlocks.DOCKING_STATION_DUMMY.get())) {
+            if (level.getBlockEntity(pos) instanceof DockingStationDummyBlockEntity dummy) {
+                BlockPos masterPos = dummy.getMasterPos();
+                if (masterPos != null) {
+                    DockingStationBlock.setOccupied(level, masterPos, occupied);
+                }
             }
         }
     }

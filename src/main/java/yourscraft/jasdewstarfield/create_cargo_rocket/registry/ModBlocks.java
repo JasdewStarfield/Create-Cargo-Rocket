@@ -8,12 +8,24 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import yourscraft.jasdewstarfield.create_cargo_rocket.CreateCargoRocket;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlock;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationDummyBlock;
 
 public class ModBlocks {
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(CreateCargoRocket.MODID);
 
     public static final DeferredBlock<Block> DOCKING_STATION = BLOCKS.register("docking_station",
-            () -> new DockingStationBlock(BlockBehaviour.Properties.of().mapColor(MapColor.METAL).strength(3.0F).requiresCorrectToolForDrops()));
+            () -> new DockingStationBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F)
+                    .requiresCorrectToolForDrops()
+            ));
+
+    public static final DeferredBlock<Block> DOCKING_STATION_DUMMY = BLOCKS.register("docking_station_dummy",
+            () -> new DockingStationDummyBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F, 3.0F) // 硬度与主方块一致
+                    .noLootTable() // 代理方块不掉落物品
+            ));
 
     public static void register(IEventBus eventBus) {
         BLOCKS.register(eventBus);

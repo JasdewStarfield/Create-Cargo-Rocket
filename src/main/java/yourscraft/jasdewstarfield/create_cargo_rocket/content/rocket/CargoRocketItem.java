@@ -10,6 +10,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationBlock;
+import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.DockingStationDummyBlockEntity;
 import yourscraft.jasdewstarfield.create_cargo_rocket.content.station.GlobalStationData;
 import yourscraft.jasdewstarfield.create_cargo_rocket.registry.ModBlocks;
 
@@ -24,32 +25,51 @@ public class CargoRocketItem extends Item {
         BlockPos clickedPos = context.getClickedPos();
         BlockState state = level.getBlockState(clickedPos);
 
-        // 只允许放置在未被占用的站台上方
-        if (state.is(ModBlocks.DOCKING_STATION.get()) && !state.getValue(DockingStationBlock.OCCUPIED)) {
-            BlockPos spawnPos = clickedPos.above();
-            if (!level.isEmptyBlock(spawnPos)) {
-                return InteractionResult.FAIL;
-            }
+        BlockPos masterPos = null;
+        BlockState masterState = null;
 
-            if (!level.isClientSide) {
-                CargoRocketEntity rocket = new CargoRocketEntity(level, spawnPos.getX() + 0.5, spawnPos.getY(), spawnPos.getZ() + 0.5);
-
-                Player player = context.getPlayer();
-                if (player != null && level instanceof ServerLevel sl) {
-                    rocket.setOwner(player.getUUID());
-                    // 默认名字可以是 "玩家的火箭"
-                    GlobalStationData data = GlobalStationData.get(sl);
-                    String baseName = player.getName().getString() + "'s Rocket";
-                    String uniqueName = data.getUniqueRocketName(baseName);
-                    rocket.setRocketName(uniqueName);
+        // 1. 判定点击的是主方块还是代理方块
+        if (state.is(ModBlocks.DOCKING_STATION.get())) {
+            masterPos = clickedPos;
+            masterState = state;
+        } else if (state.is(ModBlocks.DOCKING_STATION_DUMMY.get())) {
+            if (level.getBlockEntity(clickedPos) instanceof DockingStationDummyBlockEntity dummy) {
+                masterPos = dummy.getMasterPos();
+                if (masterPos != null) {
+                    masterState = level.getBlockState(masterPos);
                 }
-
-                level.addFreshEntity(rocket);
-                context.getItemInHand().shrink(1);
             }
-            return InteractionResult.sidedSuccess(level.isClientSide);
         }
 
+        // 2. 如果找到了有效的主方块，且未被占用
+        if (masterPos != null && masterState.is(ModBlocks.DOCKING_STATION.get())) {
+            if (!masterState.getValue(DockingStationBlock.OCCUPIED)) {
+                // 火箭永远生成在主方块的正上方
+                BlockPos spawnPos = masterPos.above();
+
+                // 检查空间（这里假设火箭只需 1x1 空间，如果火箭模型很大，可能需要检查 3x3 的上方空间）
+                if (!level.isEmptyBlock(spawnPos)) {
+                    return InteractionResult.FAIL;
+                }
+                if (!level.isClientSide) {
+                    CargoRocketEntity rocket = new CargoRocketEntity(level, spawnPos.getX() + 0.5, spawnPos.getY(), spawnPos.getZ() + 0.5);
+
+                    Player player = context.getPlayer();
+                    if (player != null && level instanceof ServerLevel sl) {
+                        rocket.setOwner(player.getUUID());
+                        GlobalStationData data = GlobalStationData.get(sl);
+                        String baseName = player.getName().getString() + "'s Rocket";
+                        String uniqueName = data.getUniqueRocketName(baseName);
+                        rocket.setRocketName(uniqueName);
+                    }
+
+                    level.addFreshEntity(rocket);
+                    DockingStationBlock.setOccupied(level, masterPos, true);
+                    context.getItemInHand().shrink(1);
+                }
+                return InteractionResult.sidedSuccess(level.isClientSide);
+            }
+        }
         return InteractionResult.PASS;
     }
 }
