@@ -71,6 +71,38 @@ public class DockingStationDummyBlock extends BaseEntityBlock implements IWrench
         return InteractionResult.PASS;
     }
 
+    /**
+     * 当玩家挖掘此方块时调用（在 onRemove 之前）。
+     * 用于处理创造模式不掉落、以及工具等级判断。
+     *
+     * @return 方块 state
+     */
+    @Override
+    public @NotNull BlockState playerWillDestroy(Level level, @NotNull BlockPos pos, @NotNull BlockState state, @NotNull Player player) {
+        if (!level.isClientSide) {
+            if (level.getBlockEntity(pos) instanceof DockingStationDummyBlockEntity dummy) {
+                BlockPos masterPos = dummy.getMasterPos();
+                if (masterPos != null) {
+                    BlockState masterState = level.getBlockState(masterPos);
+                    if (masterState.is(ModBlocks.DOCKING_STATION.get())) {
+                        // 判定逻辑：
+                        // 1. 玩家不是创造模式
+                        // 2. 玩家持有正确的工具 (或者该方块不需要特定工具)
+                        boolean requiresTool = masterState.requiresCorrectToolForDrops();
+                        boolean hasTool = !requiresTool || player.getMainHandItem().isCorrectToolForDrops(masterState);
+
+                        // 3. 综合判断：非创造模式 且 (不需要工具 或 工具合格)
+                        boolean shouldDrop = !player.isCreative() && hasTool;
+
+                        // 销毁主方块，并传入计算好的 shouldDrop
+                        level.destroyBlock(masterPos, shouldDrop);
+                    }
+                }
+            }
+        }
+        return super.playerWillDestroy(level, pos, state, player);
+    }
+
     // 破坏代理方块 -> 破坏主方块
     @Override
     public void onRemove(BlockState state, @NotNull Level level, @NotNull BlockPos pos, BlockState newState, boolean isMoving) {

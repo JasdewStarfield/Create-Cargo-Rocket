@@ -1,0 +1,4 @@
+{
+  "type": "minecraft:block",
+  "random_sequence": "create_cargo_rocket:blocks/docking_station_dummy"
+}

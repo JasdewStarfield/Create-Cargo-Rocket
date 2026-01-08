@@ -23,8 +23,8 @@ public class ModBlocks {
     public static final DeferredBlock<Block> DOCKING_STATION_DUMMY = BLOCKS.register("docking_station_dummy",
             () -> new DockingStationDummyBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.METAL)
-                    .strength(3.0F, 3.0F) // 硬度与主方块一致
-                    .noLootTable() // 代理方块不掉落物品
+                    .strength(3.0F, 3.0F)
+                    .requiresCorrectToolForDrops()
             ));
 
     public static void register(IEventBus eventBus) {
